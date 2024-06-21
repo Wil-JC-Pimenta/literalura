@@ -12,13 +12,14 @@ import org.springframework.boot.CommandLineRunner;
 import org.springframework.stereotype.Component;
 
 import java.util.List;
+import java.util.Optional;
 import java.util.Scanner;
 
 @Component
 public class Main implements CommandLineRunner {
     private final RequestAPI requestAPI = new RequestAPI();
     private final Scanner scanner = new Scanner(System.in);
-    private final String urlBase = "https://gutendex.com/books/";
+    private final String urlBase = "https://gutendex.com/books/?search=";
     private final ConverteDados converteDados = new ConverteDados();
     private final LivroRepository livroRepository;
     private final AutorRepository autorRepository;
@@ -48,11 +49,11 @@ public class Main implements CommandLineRunner {
                     Selecione uma das opções:
 
                     1 - Buscar um livro
-                    2 - Consultar livros buscados
-                    3 - Consultar autores
-                    4 - Consultar autores de um ano específico
-                    5 - Consultar livros por idioma
-
+                    2 - Listar livros registrados
+                    3 - Listar autores registrados
+                    4 - Listar autores vivos em um determinado ano
+                    5 - Listar livros em um determinado idioma
+                    6 - Obter dados do livro
                     0 - Sair
                     """;
 
@@ -71,6 +72,7 @@ public class Main implements CommandLineRunner {
                 case 3 -> consultarAutores();
                 case 4 -> consultarAutoresPorAno();
                 case 5 -> consultarLivrosPorIdioma();
+                case 6 -> verificarDados();
                 case 0 -> System.out.println("Saindo...");
                 default -> System.out.println("Insira uma opção válida!");
             }
@@ -81,7 +83,7 @@ public class Main implements CommandLineRunner {
     private DadosLivro obterDadosLivro() {
         System.out.println("Insira o nome do livro:");
         String busca = scanner.nextLine().toLowerCase().replace(" ", "%20");
-        String json = String.valueOf(requestAPI.getClass(urlBase + "?search=" + busca));
+        String json = requestAPI.get(urlBase + busca);  // Chama o método get da RequestAPI
 
         return converteDados.obterDados(json, DadosLivro.class);
     }
@@ -91,23 +93,43 @@ public class Main implements CommandLineRunner {
         DadosLivro dadosLivro = obterDadosLivro();
 
         try {
-            Livro livro = new Livro(dadosLivro.resultados().get(0));
-            Autor autor = new Autor(dadosLivro.resultados().get(0).autorList().get(0));
+            // Verifica se o autor já existe no banco de dados
+            Optional<Autor> autorExistente = autorRepository.findByNomeAutor(dadosLivro.resultados().get(0).autorList().get(0).nomeAutor());
+
+            Autor autor;
+            if (autorExistente.isPresent()) {
+                autor = autorExistente.get();
+            } else {
+                // Cria um novo autor se não existir
+                autor = new Autor(
+                        dadosLivro.resultados().get(0).autorList().get(0).nomeAutor(),
+                        dadosLivro.resultados().get(0).autorList().get(0).anoNascimento(),
+                        dadosLivro.resultados().get(0).autorList().get(0).anoDeFalecimento()
+                );
+                autorRepository.save(autor); // Salva o novo autor
+            }
+
+            // Cria um novo livro associando ao autor (existente ou recém-criado)
+            Livro livro = new Livro(
+                    dadosLivro.resultados().get(0).titulo(),
+                    autor, // Usa o autor encontrado ou criado
+                    dadosLivro.resultados().get(0).idioma(), // Aqui usamos o método idioma()
+                    dadosLivro.resultados().get(0).downloads()
+            );
 
             System.out.println("""
-                    Livro[
-                        Título: %s
-                        Autor: %s
-                        Idioma: %s
-                        Downloads: %s
-                    ]
-                    """.formatted(livro.getTitulo(), livro.getAutor(), livro.getIdioma(), livro.getDownloads().toString()));
+                Livro[
+                    Título: %s
+                    Autor: %s
+                    Idioma: %s
+                    Downloads: %s
+                ]
+                """.formatted(livro.getTitulo(), livro.getAutor().getNomeAutor(), livro.getIdioma(), livro.getDownloads().toString()));
 
-            livroRepository.save(livro);
-            autorRepository.save(autor);
+            livroRepository.save(livro); // Salva o livro
 
         } catch (Exception e) {
-            System.out.println("Esse livro não foi encontrado.");
+            System.out.println("Erro ao buscar livro: " + e.getMessage());
         }
     }
 
@@ -120,7 +142,7 @@ public class Main implements CommandLineRunner {
                         Autor: %s
                         Idioma: %s
                         Downloads: %s
-                    """.formatted(l.getTitulo(), l.getAutor(), l.getIdioma(), l.getDownloads().toString()));
+                    """.formatted(l.getTitulo(), l.getAutor().getNomeAutor(), l.getIdioma(), l.getDownloads().toString()));
         });
     }
 
@@ -159,6 +181,8 @@ public class Main implements CommandLineRunner {
                 ****************************************************************
                 1 - Inglês (en)
                 2 - Português (pt-br)
+                3 - Espanhol (es)
+                4-  Francês (fr)
                 """);
 
         try {
@@ -168,6 +192,8 @@ public class Main implements CommandLineRunner {
             switch (opcaoIdioma) {
                 case 1 -> livros = livroRepository.findByIdioma("en");
                 case 2 -> livros = livroRepository.findByIdioma("pt-br");
+                case 3 -> livros = livroRepository.findByIdioma("es");
+                case 4 -> livros = livroRepository.findByIdioma("fr");
                 default -> System.out.println("Selecione uma opção válida!");
             }
 
@@ -177,11 +203,23 @@ public class Main implements CommandLineRunner {
                         Autor: %s
                         Idioma: %s
                         Downloads: %s
-                    """.formatted(l.getTitulo(), l.getAutor(), l.getIdioma(), l.getDownloads().toString()));
+                        """.formatted(l.getTitulo(), l.getAutor().getNomeAutor(), l.getIdioma(), l.getDownloads().toString()));
             });
 
         } catch (Exception e) {
             System.out.println("Insira uma opção válida!");
+            scanner.next(); // Limpar o buffer
         }
+    }
+
+    // Verificar dados inseridos no banco de dados
+    private void verificarDados() {
+        List<Livro> livros = livroRepository.findAll();
+        System.out.println("Livros no banco de dados:");
+        livros.forEach(livro -> System.out.println("Título: " + livro.getTitulo() + ", Autor: " + livro.getAutor().getNomeAutor()));
+
+        List<Autor> autores = autorRepository.findAll();
+        System.out.println("Autores no banco de dados:");
+        autores.forEach(autor -> System.out.println("Nome: " + autor.getNomeAutor() + ", Ano de Nascimento: " + autor.getAnoNascimento()));
     }
 }

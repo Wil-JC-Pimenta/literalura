@@ -15,4 +15,8 @@ public record DadosResultado(
     public List<DadosAutor> autorList() {
         return listaAutores;
     }
+
+    public String idioma() {
+        return idiomas.isEmpty() ? null : idiomas.get(0);
+    }
 }

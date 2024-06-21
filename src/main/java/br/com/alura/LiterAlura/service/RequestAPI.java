@@ -8,7 +8,6 @@ import java.net.http.HttpResponse;
 public class RequestAPI {
 
     // Faz uma chamada a uma API
-
     public String getData(String url) {
         HttpClient client = HttpClient.newHttpClient();
         HttpRequest request = HttpRequest.newBuilder()
@@ -24,11 +23,10 @@ public class RequestAPI {
             System.out.println(e.getMessage());
         }
 
-        String json = response.body();
-        return json;
+        return response != null ? response.body() : "";
     }
 
-    public String getClass(String s) {
-        return null;
+    public String get(String url) {
+        return getData(url);
     }
 }
